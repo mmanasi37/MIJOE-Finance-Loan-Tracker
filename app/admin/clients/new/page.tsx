@@ -2,8 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
-import { generateClientId } from '@/lib/client-id'
+import { createClientAction } from '@/lib/actions'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,7 +12,6 @@ import Link from 'next/link'
 
 export default function NewClientPage() {
   const router = useRouter()
-  const supabase = createClient()
   const [loading, setLoading] = useState(false)
 
   const [form, setForm] = useState({
@@ -34,47 +32,25 @@ export default function NewClientPage() {
     e.preventDefault()
     setLoading(true)
 
-    try {
-      const clientId = generateClientId()
+    const result = await createClientAction({
+      full_name: form.full_name,
+      email: form.email,
+      password: form.password,
+      total_amount: parseFloat(form.total_amount),
+      monthly_payment: parseFloat(form.monthly_payment),
+      start_date: form.start_date,
+      due_date: form.due_date,
+    })
 
-      const res = await fetch('/api/admin/create-client', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: form.email,
-          password: form.password,
-          full_name: form.full_name,
-          client_id: clientId,
-        }),
-      })
-
-      const result = await res.json()
-
-      if (!res.ok) {
-        toast.error(result.error ?? 'Failed to create client')
-        return
-      }
-
-      const { error: loanError } = await supabase.from('loans').insert({
-        profile_id: result.user_id,
-        total_amount: parseFloat(form.total_amount),
-        monthly_payment: parseFloat(form.monthly_payment),
-        start_date: form.start_date,
-        due_date: form.due_date,
-        amount_paid: 0,
-        status: 'Active',
-      })
-
-      if (loanError) {
-        toast.error('Client created but loan setup failed: ' + loanError.message)
-        return
-      }
-
-      toast.success(`Client created — ID: ${clientId}`)
-      router.push('/admin/dashboard')
-    } finally {
+    if (result.error) {
+      toast.error(result.error)
       setLoading(false)
+      return
     }
+
+    toast.success(`Client created — ID: ${result.clientId}`)
+    router.push('/admin/dashboard')
+    router.refresh()
   }
 
   return (

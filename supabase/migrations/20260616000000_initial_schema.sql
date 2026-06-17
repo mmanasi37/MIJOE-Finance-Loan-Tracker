@@ -171,6 +171,15 @@ create trigger on_auth_user_created
   for each row execute procedure public.handle_new_user();
 
 -- ============================================================
+-- GRANTS: Allow authenticated users to query tables (RLS handles row-level access)
+-- ============================================================
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.profiles to authenticated;
+grant select, insert, update, delete on public.loans to authenticated;
+grant select, insert, update, delete on public.payments to authenticated;
+grant select on public.profiles to anon;
+
+-- ============================================================
 -- REALTIME: Enable for loans and payments
 -- ============================================================
 alter publication supabase_realtime add table public.loans;

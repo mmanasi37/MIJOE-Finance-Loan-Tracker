@@ -1,13 +1,8 @@
-import { createClient } from '@/lib/supabase/server'
+import { getDb } from '@/lib/db'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { LoanStatus } from '@/lib/types'
 import Link from 'next/link'
@@ -36,44 +31,44 @@ export default async function AdminDashboard({
   searchParams: Promise<{ q?: string; status?: string }>
 }) {
   const { q, status } = await searchParams
-  const supabase = await createClient()
+  const db = getDb()
 
-  const { data: clients } = await supabase
-    .from('profiles')
-    .select('id, full_name, client_id, email, created_at, loans(id, total_amount, amount_paid, status, due_date)')
-    .eq('role', 'client')
-    .order('created_at', { ascending: false })
+  const clients = db.prepare(`
+    SELECT p.id, p.full_name, p.client_id, p.email, p.created_at,
+           l.id as loan_id, l.total_amount, l.amount_paid, l.status as loan_status, l.due_date
+    FROM profiles p
+    LEFT JOIN loans l ON l.profile_id = p.id
+    WHERE p.role = 'client'
+    ORDER BY p.created_at DESC
+  `).all() as {
+    id: string; full_name: string; client_id: string | null; email: string; created_at: string;
+    loan_id: string | null; total_amount: number | null; amount_paid: number | null;
+    loan_status: string | null; due_date: string | null;
+  }[]
 
-  let filtered = clients ?? []
+  let filtered = clients
 
   if (q) {
     const lower = q.toLowerCase()
     filtered = filtered.filter(
-      (c) =>
-        c.full_name.toLowerCase().includes(lower) ||
-        (c.client_id ?? '').toLowerCase().includes(lower)
+      (c) => c.full_name.toLowerCase().includes(lower) || (c.client_id ?? '').toLowerCase().includes(lower)
     )
   }
 
   if (status && status !== 'all') {
-    filtered = filtered.filter((c) => {
-      const loan = Array.isArray(c.loans) ? c.loans[0] : c.loans
-      return loan?.status === status
-    })
+    filtered = filtered.filter((c) => c.loan_status === status)
   }
 
-  const all = clients ?? []
-  const activeCount = all.filter((c) => { const l = Array.isArray(c.loans) ? c.loans[0] : c.loans; return l?.status === 'Active' }).length
-  const overdueCount = all.filter((c) => { const l = Array.isArray(c.loans) ? c.loans[0] : c.loans; return l?.status === 'Overdue' }).length
-  const completedCount = all.filter((c) => { const l = Array.isArray(c.loans) ? c.loans[0] : c.loans; return l?.status === 'Completed' }).length
+  const activeCount = clients.filter((c) => c.loan_status === 'Active').length
+  const overdueCount = clients.filter((c) => c.loan_status === 'Overdue').length
+  const completedCount = clients.filter((c) => c.loan_status === 'Completed').length
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="font-heading text-2xl font-bold text-foreground">Client Overview</h1>
-          <p className="text-sm text-muted-foreground mt-1">{all.length} total clients</p>
+          <p className="text-sm text-muted-foreground mt-1">{clients.length} total clients</p>
         </div>
         <Link href="/admin/clients/new">
           <Button className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold cursor-pointer glow-gold">
@@ -82,10 +77,9 @@ export default async function AdminDashboard({
         </Link>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Clients', value: all.length, color: 'text-foreground' },
+          { label: 'Total Clients', value: clients.length, color: 'text-foreground' },
           { label: 'Active', value: activeCount, color: 'text-emerald-400' },
           { label: 'Overdue', value: overdueCount, color: 'text-red-400' },
           { label: 'Completed', value: completedCount, color: 'text-muted-foreground' },
@@ -99,19 +93,15 @@ export default async function AdminDashboard({
         ))}
       </div>
 
-      {/* Search + Filter */}
       <AdminSearch defaultQuery={q} defaultStatus={status} />
 
-      {/* Table */}
       <Card className="bg-card border-border shadow-none">
         <CardHeader className="pb-3 border-b border-border">
           <CardTitle className="text-sm font-semibold text-foreground">All Clients</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {filtered.length === 0 ? (
-            <div className="py-16 text-center text-muted-foreground text-sm">
-              No clients found
-            </div>
+            <div className="py-16 text-center text-muted-foreground text-sm">No clients found</div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -128,9 +118,9 @@ export default async function AdminDashboard({
                 </TableHeader>
                 <TableBody>
                   {filtered.map((client) => {
-                    const loan = Array.isArray(client.loans) ? client.loans[0] : client.loans
-                    const balance = loan ? loan.total_amount - loan.amount_paid : null
-
+                    const balance = client.total_amount != null && client.amount_paid != null
+                      ? client.total_amount - client.amount_paid
+                      : null
                     return (
                       <TableRow key={client.id} className="border-border hover:bg-muted/40 transition-colors">
                         <TableCell>
@@ -145,24 +135,22 @@ export default async function AdminDashboard({
                           </code>
                         </TableCell>
                         <TableCell>
-                          {loan ? <StatusBadge status={loan.status as LoanStatus} /> : <span className="text-xs text-muted-foreground">No loan</span>}
+                          {client.loan_status
+                            ? <StatusBadge status={client.loan_status as LoanStatus} />
+                            : <span className="text-xs text-muted-foreground">No loan</span>}
                         </TableCell>
                         <TableCell className="text-right text-sm font-heading font-medium text-foreground">
                           {balance !== null ? formatCurrency(balance) : '—'}
                         </TableCell>
                         <TableCell className="text-right text-sm text-muted-foreground font-heading">
-                          {loan ? formatCurrency(loan.total_amount) : '—'}
+                          {client.total_amount != null ? formatCurrency(client.total_amount) : '—'}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground font-heading">
-                          {loan?.due_date ?? '—'}
+                          {client.due_date ?? '—'}
                         </TableCell>
                         <TableCell>
                           <Link href={`/admin/clients/${client.id}`}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-xs text-primary hover:text-primary hover:bg-primary/10 cursor-pointer"
-                            >
+                            <Button variant="ghost" size="sm" className="text-xs text-primary hover:text-primary hover:bg-primary/10 cursor-pointer">
                               Edit
                             </Button>
                           </Link>

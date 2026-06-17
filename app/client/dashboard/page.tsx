@@ -1,18 +1,15 @@
-import { createClient } from '@/lib/supabase/server'
+import { getIronSession } from 'iron-session'
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { sessionOptions, type SessionData } from '@/lib/session'
+import { getDb } from '@/lib/db'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { LoanStatus } from '@/lib/types'
 import PaymentChart from '@/components/payment-chart'
-import RealtimeDashboard from '@/components/realtime-dashboard'
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(amount)
@@ -32,41 +29,40 @@ function StatusBadge({ status }: { status: LoanStatus }) {
 }
 
 export default async function ClientDashboard() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const session = await getIronSession<SessionData>(await cookies(), sessionOptions)
+  if (!session.user) redirect('/login')
 
-  const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-  const { data: loan } = await supabase.from('loans').select('*').eq('profile_id', user.id).single()
-  const { data: payments } = await supabase
-    .from('payments')
-    .select('*')
-    .eq('loan_id', loan?.id ?? '')
-    .order('month', { ascending: true })
+  const db = getDb()
+  const loan = db.prepare('SELECT * FROM loans WHERE profile_id = ?').get(session.user.id) as {
+    id: string; total_amount: number; amount_paid: number; monthly_payment: number;
+    start_date: string; due_date: string; status: string;
+  } | undefined
+
+  const payments = loan
+    ? (db.prepare('SELECT * FROM payments WHERE loan_id = ? ORDER BY month ASC').all(loan.id) as {
+        id: string; month: string; amount: number; paid: number;
+      }[])
+    : []
 
   const balance = loan ? loan.total_amount - loan.amount_paid : 0
   const progress = loan ? Math.min(Math.round((loan.amount_paid / loan.total_amount) * 100), 100) : 0
 
-  const chartData = (payments ?? []).map((p) => ({
+  const chartData = payments.map((p) => ({
     month: p.month,
     amount: p.paid ? p.amount : 0,
-    paid: p.paid,
+    paid: Boolean(p.paid),
   }))
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
           <h1 className="font-heading text-2xl font-bold text-foreground">My Loan Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">Welcome back, {profile?.full_name}</p>
+          <p className="text-sm text-muted-foreground mt-1">Welcome back, {session.user.full_name}</p>
         </div>
         {loan && <StatusBadge status={loan.status as LoanStatus} />}
       </div>
 
-      {loan && <RealtimeDashboard loanId={loan.id} />}
-
-      {/* Summary Cards */}
       {loan ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
@@ -91,7 +87,6 @@ export default async function ClientDashboard() {
         </Card>
       )}
 
-      {/* Progress */}
       {loan && (
         <Card className="bg-card border-border shadow-none">
           <CardHeader className="pb-4">
@@ -110,7 +105,6 @@ export default async function ClientDashboard() {
         </Card>
       )}
 
-      {/* Chart */}
       {chartData.length > 0 && (
         <Card className="bg-card border-border shadow-none">
           <CardHeader className="pb-2">
@@ -122,13 +116,12 @@ export default async function ClientDashboard() {
         </Card>
       )}
 
-      {/* Payment Table */}
       <Card className="bg-card border-border shadow-none">
         <CardHeader className="pb-3 border-b border-border">
           <CardTitle className="text-sm font-semibold text-foreground">Payment Records</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          {!payments || payments.length === 0 ? (
+          {payments.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground text-sm">No payment records yet</div>
           ) : (
             <div className="overflow-x-auto">

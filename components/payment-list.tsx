@@ -1,15 +1,10 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { togglePaymentAction } from '@/lib/actions'
 import { Payment } from '@/lib/types'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -27,37 +22,14 @@ function formatCurrency(amount: number) {
 export default function PaymentList({ payments, loanId }: PaymentListProps) {
   const [toggling, setToggling] = useState<string | null>(null)
   const router = useRouter()
-  const supabase = createClient()
 
   async function togglePaid(payment: Payment) {
     setToggling(payment.id)
-    const newPaid = !payment.paid
-
-    const { error } = await supabase.from('payments').update({ paid: newPaid }).eq('id', payment.id)
-
-    if (error) {
-      toast.error('Failed to update: ' + error.message)
+    const result = await togglePaymentAction(payment.id, loanId, !payment.paid)
+    if (result.error) {
+      toast.error('Failed to update: ' + result.error)
     } else {
-      const { data: allPayments } = await supabase
-        .from('payments')
-        .select('id, amount, paid')
-        .eq('loan_id', loanId)
-
-      if (allPayments) {
-        const totalPaid = allPayments
-          .map((p) => (p.id === payment.id ? { ...p, paid: newPaid } : p))
-          .filter((p) => p.paid)
-          .reduce((sum, p) => sum + p.amount, 0)
-
-        const { data: loan } = await supabase.from('loans').select('total_amount').eq('id', loanId).single()
-
-        await supabase
-          .from('loans')
-          .update({ amount_paid: totalPaid, ...(loan && totalPaid >= loan.total_amount ? { status: 'Completed' } : {}) })
-          .eq('id', loanId)
-      }
-
-      toast.success(newPaid ? 'Marked as paid' : 'Marked as unpaid')
+      toast.success(!payment.paid ? 'Marked as paid' : 'Marked as unpaid')
       router.refresh()
     }
     setToggling(null)

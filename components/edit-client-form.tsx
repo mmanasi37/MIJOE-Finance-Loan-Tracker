@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { updateLoanStatusAction } from '@/lib/actions'
 import { LoanStatus } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -21,13 +21,12 @@ export default function EditClientForm({ loanId, currentStatus, email }: EditCli
   const [status, setStatus] = useState<LoanStatus>(currentStatus)
   const [saving, setSaving] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
 
   async function handleSave() {
     setSaving(true)
-    const { error } = await supabase.from('loans').update({ status }).eq('id', loanId)
-    if (error) {
-      toast.error('Failed to update status: ' + error.message)
+    const result = await updateLoanStatusAction(loanId, status)
+    if (result.error) {
+      toast.error('Failed to update status: ' + result.error)
     } else {
       toast.success('Loan status updated')
       router.refresh()

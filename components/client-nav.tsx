@@ -1,13 +1,10 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -18,13 +15,8 @@ interface ClientNavProps {
 }
 
 export default function ClientNav({ fullName, clientId }: ClientNavProps) {
-  const router = useRouter()
-  const supabase = createClient()
-
-  async function handleSignOut() {
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
+  function handleSignOut() {
+    window.location.href = '/api/auth/logout'
   }
 
   const initials = fullName
@@ -57,7 +49,7 @@ export default function ClientNav({ fullName, clientId }: ClientNavProps) {
               </Avatar>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48 bg-popover border-border">
-              <DropdownMenuLabel className="font-medium text-foreground">{fullName}</DropdownMenuLabel>
+              <div className="px-2 py-1.5 text-sm font-medium text-foreground">{fullName}</div>
               <DropdownMenuSeparator className="bg-border" />
               <DropdownMenuItem
                 onClick={handleSignOut}

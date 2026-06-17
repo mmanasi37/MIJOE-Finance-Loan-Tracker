@@ -1,24 +1,17 @@
-import { createClient } from '@/lib/supabase/server'
+import { getIronSession } from 'iron-session'
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { sessionOptions, type SessionData } from '@/lib/session'
 import AdminNav from '@/components/admin-nav'
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const session = await getIronSession<SessionData>(await cookies(), sessionOptions)
 
-  if (!user) redirect('/login')
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, email')
-    .eq('id', user.id)
-    .single()
-
-  if (profile?.role !== 'admin') redirect('/client/dashboard')
+  if (!session.user || session.user.role !== 'admin') redirect('/login')
 
   return (
     <div className="min-h-screen bg-background">
-      <AdminNav fullName={profile.full_name} email={profile.email} />
+      <AdminNav fullName={session.user.full_name} email={session.user.email} />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {children}
       </main>

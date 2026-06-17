@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { getDb } from '@/lib/db'
 import { notFound } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LoanStatus } from '@/lib/types'
@@ -13,31 +13,30 @@ function formatCurrency(amount: number) {
 
 export default async function EditClientPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const supabase = await createClient()
+  const db = getDb()
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', id)
-    .eq('role', 'client')
-    .single()
+  const profile = db.prepare(
+    "SELECT * FROM profiles WHERE id = ? AND role = 'client'"
+  ).get(id) as { id: string; full_name: string; client_id: string | null; email: string } | undefined
 
   if (!profile) notFound()
 
-  const { data: loan } = await supabase
-    .from('loans')
-    .select('*')
-    .eq('profile_id', id)
-    .single()
+  const loan = db.prepare('SELECT * FROM loans WHERE profile_id = ?').get(id) as {
+    id: string; total_amount: number; amount_paid: number; monthly_payment: number;
+    start_date: string; due_date: string; status: string; created_at: string;
+  } | undefined
 
-  const { data: payments } = await supabase
-    .from('payments')
-    .select('*')
-    .eq('loan_id', loan?.id ?? '')
-    .order('recorded_at', { ascending: false })
+  const payments = loan
+    ? (db.prepare('SELECT * FROM payments WHERE loan_id = ? ORDER BY recorded_at DESC').all(loan.id) as {
+        id: string; loan_id: string; month: string; amount: number; paid: number; recorded_at: string;
+      }[])
+    : []
 
   const balance = loan ? loan.total_amount - loan.amount_paid : 0
   const progress = loan ? Math.round((loan.amount_paid / loan.total_amount) * 100) : 0
+
+  // SQLite stores paid as 0/1 integer — convert to boolean for components
+  const paymentsForDisplay = payments.map((p) => ({ ...p, paid: Boolean(p.paid) }))
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -53,7 +52,6 @@ export default async function EditClientPage({ params }: { params: Promise<{ id:
         </div>
       </div>
 
-      {/* Loan Summary */}
       {loan && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
@@ -72,7 +70,6 @@ export default async function EditClientPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
-      {/* Edit Loan Status */}
       {loan && (
         <Card className="bg-card border-border shadow-none">
           <CardHeader className="pb-4 border-b border-border">
@@ -84,7 +81,6 @@ export default async function EditClientPage({ params }: { params: Promise<{ id:
         </Card>
       )}
 
-      {/* Add Payment */}
       {loan && (
         <Card className="bg-card border-border shadow-none">
           <CardHeader className="pb-4 border-b border-border">
@@ -96,13 +92,12 @@ export default async function EditClientPage({ params }: { params: Promise<{ id:
         </Card>
       )}
 
-      {/* Payment History */}
       <Card className="bg-card border-border shadow-none">
         <CardHeader className="pb-4 border-b border-border">
           <CardTitle className="text-sm font-semibold text-foreground">Payment History</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <PaymentList payments={payments ?? []} loanId={loan?.id ?? ''} />
+          <PaymentList payments={paymentsForDisplay} loanId={loan?.id ?? ''} />
         </CardContent>
       </Card>
     </div>

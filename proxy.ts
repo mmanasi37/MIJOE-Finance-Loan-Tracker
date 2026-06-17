@@ -1,69 +1,25 @@
-import { createServerClient } from '@supabase/ssr'
+import { getIronSession } from 'iron-session'
 import { NextResponse, type NextRequest } from 'next/server'
+import { sessionOptions, type SessionData } from '@/lib/session'
 
 export async function proxy(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+  const response = NextResponse.next()
+  const session = await getIronSession<SessionData>(request, response, sessionOptions)
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
-
-  const { data: { user } } = await supabase.auth.getUser()
   const { pathname } = request.nextUrl
+  const user = session.user
 
-  // Not logged in — redirect to login (except for /login itself)
   if (!user && pathname !== '/login') {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Logged in — redirect away from login
   if (user && pathname === '/login') {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    const role = profile?.role
     return NextResponse.redirect(
-      new URL(role === 'admin' ? '/admin/dashboard' : '/client/dashboard', request.url)
+      new URL(user.role === 'admin' ? '/admin/dashboard' : '/client/dashboard', request.url)
     )
   }
 
-  // Role-based route guard
-  if (user && (pathname.startsWith('/admin') || pathname.startsWith('/client'))) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    const role = profile?.role
-
-    if (pathname.startsWith('/admin') && role !== 'admin') {
-      return NextResponse.redirect(new URL('/client/dashboard', request.url))
-    }
-    if (pathname.startsWith('/client') && role !== 'client') {
-      return NextResponse.redirect(new URL('/admin/dashboard', request.url))
-    }
-  }
-
-  return supabaseResponse
+  return response
 }
 
 export const config = {
