@@ -4,7 +4,10 @@ import { mkdirSync } from 'fs'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'crypto'
 
-const DATA_DIR = path.join(process.cwd(), 'data')
+// Vercel's project root is read-only — use /tmp in production
+const DATA_DIR = process.env.NODE_ENV === 'production'
+  ? '/tmp'
+  : path.join(process.cwd(), 'data')
 const DB_PATH = path.join(DATA_DIR, 'loan-tracker.db')
 
 let _db: Database.Database | null = null
